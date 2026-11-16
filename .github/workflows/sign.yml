@@ -1,0 +1,120 @@
+name: Sign catalog
+
+on:
+  push:
+    branches: [main]
+    paths: [catalog.json]
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: sign-catalog
+  cancel-in-progress: false
+
+env:
+  TARN_REPOSITORY: Quavon-dev/tarn-browser
+  TARN_COMMIT: 92b0b7dcfeb0a7ab1c55e7a8f427da076dbd62c2
+
+jobs:
+  # The signer is built and hashed here; the signing key never enters a job that compiles code.
+  signer:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      sha256: ${{ steps.hash.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.TARN_REPOSITORY }}
+          ref: ${{ env.TARN_COMMIT }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: "1.99.1"
+      - run: cargo build --release --locked -p filter-bundle
+      - id: hash
+        run: |
+          mkdir -p signer
+          cp target/release/filter-bundle signer/
+          echo "sha256=$(sha256sum signer/filter-bundle | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: signer
+          path: signer/
+          if-no-files-found: error
+
+  index:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Stamp version and date
+        run: |
+          now="$(date -u +%s)"
+          mkdir -p unsigned
+          jq --argjson now "$now" '{kind, version: $now, created: $now, extensions, revoked}' catalog.json > unsigned/index.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unsigned
+          path: unsigned/
+          if-no-files-found: error
+
+  sign:
+    needs: [signer, index]
+    runs-on: ubuntu-24.04
+    # CATALOG_SIGNING_KEY lives in this environment, which only main may use.
+    environment: catalog-signing
+    permissions: {}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signer
+          path: input
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: unsigned
+          path: input/unsigned
+      - name: Sign
+        env:
+          CATALOG_SIGNING_KEY: ${{ secrets.CATALOG_SIGNING_KEY }}
+          SIGNER_SHA256: ${{ needs.signer.outputs.sha256 }}
+        run: |
+          echo "$SIGNER_SHA256  input/filter-bundle" | sha256sum --check --strict
+          chmod +x input/filter-bundle
+          umask 077
+          key="$RUNNER_TEMP/catalog.key"
+          printf '%s' "$CATALOG_SIGNING_KEY" > "$key"
+          input/filter-bundle catalog --kind extension --in input/unsigned/index.json --key "$key" --out signed
+          rm -f "$key"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: signed
+          path: signed/
+          if-no-files-found: error
+
+  publish:
+    needs: sign
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed
+          path: signed
+      - name: Publish to the catalog release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          if ! gh release view catalog --repo "$REPO" > /dev/null 2>&1; then
+            gh release create catalog --repo "$REPO" --title "Catalog" --notes "Signed index of the official Tarn extensions." --latest=false
+          fi
+          gh release upload catalog --repo "$REPO" --clobber signed/index.json signed/index.sig
