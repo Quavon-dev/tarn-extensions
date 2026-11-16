@@ -21,10 +21,10 @@ Windows, Linux, iOS, Android). The supported subset is described in Tarn's
   package from anywhere else, and checks its SHA-256 at install.
 - `revoked` lists packages (`id` and `sha256`) Tarn must turn off. Entries are never removed from it.
 
-Public key (base64): `Bw6o96C9wLgBjfWcbvKknTWZqzEyWrCZLLtdI13ufIA=`
+Public key (base64): `FyiZ87sfpiQlNnK4dT3Qny0hLTTa29LoWVVLx4AFVrA=`
 
-The private key exists only as the `CATALOG_SIGNING_KEY` secret of the `catalog-signing`
-environment, which only `main` may use.
+The private key is the `CATALOG_SIGNING_KEY` secret of the `catalog-signing` environment, which
+only `main` may use; the maintainer keeps an offline copy.
 
 ## Adding or updating an extension
 
