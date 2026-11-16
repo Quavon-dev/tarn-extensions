@@ -1,0 +1,32 @@
+name: Submit an extension
+description: Propose an extension for the official catalog.
+labels: ["extension"]
+body:
+  - type: input
+    id: source
+    attributes:
+      label: Source repository
+      description: The public repository the package is built from.
+    validations:
+      required: true
+  - type: input
+    id: release
+    attributes:
+      label: Release
+      description: The tag and the `.zip` asset to mirror.
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What it does
+      description: One or two sentences, and which permissions and hosts it needs and why.
+    validations:
+      required: true
+  - type: checkboxes
+    id: tarn
+    attributes:
+      label: Tarn extension
+      options:
+        - label: The manifest sets `browser_specific_settings.tarn.runtime` to 1 and uses only the supported subset.
+          required: true

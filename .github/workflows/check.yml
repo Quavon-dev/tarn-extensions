@@ -1,0 +1,61 @@
+name: Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: check-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  TARN_REPOSITORY: Quavon-dev/tarn-browser
+  TARN_COMMIT: 92b0b7dcfeb0a7ab1c55e7a8f427da076dbd62c2
+
+jobs:
+  # Signs the catalog with a throwaway key, which runs the same checks Tarn applies to the index,
+  # and checks every package against its entry. No secret is used.
+  check:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: catalog
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.TARN_REPOSITORY }}
+          ref: ${{ env.TARN_COMMIT }}
+          persist-credentials: false
+          path: tarn
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: "1.99.1"
+      - run: cargo build --release --locked -p filter-bundle --manifest-path tarn/Cargo.toml
+      - name: The index is one Tarn accepts
+        run: |
+          now="$(date -u +%s)"
+          jq --argjson now "$now" '{kind, version: $now, created: $now, extensions, revoked}' catalog/catalog.json > index.json
+          umask 077
+          tarn/target/release/filter-bundle keygen | sed -n 's/^FILTER_SIGNING_KEY=//p' > "$RUNNER_TEMP/throwaway.key"
+          tarn/target/release/filter-bundle catalog --kind extension --in index.json --key "$RUNNER_TEMP/throwaway.key" --out out
+      - name: Every package matches its entry
+        run: |
+          jq -r '.extensions[] | [.id, .url, .sha256, (.size | tostring)] | @tsv' catalog/catalog.json |
+            while IFS=$'\t' read -r id url sha256 size; do
+              case "$url" in
+                "https://github.com/Quavon-dev/tarn-extensions/releases/download/"*) ;;
+                *) echo "::error::$id: the package is not a release asset of this repository"; exit 1 ;;
+              esac
+              curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 --max-redirs 3 \
+                --max-filesize 67108864 --max-time 120 --output package.zip "$url"
+              echo "$sha256  package.zip" | sha256sum --check --strict --quiet || { echo "::error::$id: sha256 does not match"; exit 1; }
+              [ "$(stat -c %s package.zip)" = "$size" ] || { echo "::error::$id: size does not match"; exit 1; }
+              echo "$id ok"
+            done

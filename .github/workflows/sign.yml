@@ -118,3 +118,17 @@ jobs:
             gh release create catalog --repo "$REPO" --title "Catalog" --notes "Signed index of the official Tarn extensions." --latest=false
           fi
           gh release upload catalog --repo "$REPO" --clobber signed/index.json signed/index.sig
+
+  # GitHub turns off scheduled workflows after 60 days without a commit; Tarn refuses an index older
+  # than 30 days. Enabling the workflow again through the API keeps the weekly signing on.
+  keepalive:
+    needs: publish
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    steps:
+      - name: Keep the schedule enabled
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: gh api --method PUT "repos/$REPO/actions/workflows/sign.yml/enable"

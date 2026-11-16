@@ -1,0 +1,16 @@
+language: en-US
+tone_instructions: "Terse and factual. Flag security, privacy and correctness problems first."
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  auto_review:
+    enabled: true
+    drafts: false
+  path_instructions:
+    - path: "catalog.json"
+      instructions: |
+        The signed catalog of official Tarn extensions; every entry is trusted as Official. Check each entry's `url` is a release asset of this repository (`https://github.com/Quavon-dev/tarn-extensions/releases/download/<tag>/<file>`), `id` is lowercase letters, digits and `-` (at most 64), `sha256` is 64 lowercase hex digits, `permissions` lists only `storage`, `activeTab`, `declarativeNetRequest`, and `hosts` is as narrow as the extension needs. Entries are never removed from `revoked`; a removed or replaced package must be added there.
+    - path: ".github/workflows/**"
+      instructions: "Every action pinned by full commit SHA with a version comment; minimal `permissions`; `persist-credentials: false`; no `${{ }}` of untrusted input inside `run:`; the signing key stays in the `catalog-signing` environment and never enters a job that compiles code or reads pull request content."
