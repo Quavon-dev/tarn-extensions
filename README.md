@@ -106,3 +106,8 @@ python3 -m http.server --bind 127.0.0.1 --directory _site
 
 `site/fixtures/` holds a catalog of fictional extensions that the **Check** workflow signs with a
 throwaway key and builds as a preview (the `fixture-site` artifact). It is never published.
+
+## Trademarks
+
+"Tarn" and the Tarn logo (`site/static/mark.svg`) are trademarks of Quavon UG
+(haftungsbeschränkt) that this repository's licence does not cover; see [`TRADEMARKS.md`](TRADEMARKS.md).
