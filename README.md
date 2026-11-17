@@ -66,7 +66,8 @@ only `main` may use; the maintainer keeps an offline copy.
    | `screenshots` | 0 to 5 paths `assets/<id>/<name>.png` or `.jpg` (`<name>` in lowercase letters, digits, `-` and `_`), each a complete file of at most 1 MiB and 2560 × 2560 px |
 
    `name` (at most 64 characters), `description` (300), `author` (80), `version` (64) and `homepage`
-   (300) are one line without control or invisible characters; Tarn rejects an index above 256 KiB.
+   (300) are one line of visible text without control or invisible characters and with at most two
+   combining marks on a character; Tarn rejects an index above 256 KiB.
    `hosts` lists every match pattern the package asks for, required or optional, word for word as Tarn
    reads it: `<all_urls>`, `<scheme>://<host><path>` (scheme `*`, `http`, `https`, `ws`, `wss` or `ftp`;
    host `*`, `*.<domain>`, `<domain>` or an IP literal, with an optional port; no user or password)

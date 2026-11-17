@@ -90,6 +90,8 @@ KNOWN_PERMISSIONS = [
     "notifications", "scripting", "storage", "tabs", "unlimitedStorage", "webNavigation", "webRequest",
 ]
 
+VALID_TEXT = ["Cafe\u0301", "Vi\u1ec7t", "\u0e17\u0e35\u0e48", "Tab Tidy"]
+
 
 INVALID = {
     "category outside the list": field("category", "games"),
@@ -142,6 +144,10 @@ INVALID = {
     "host pattern with a port above 65535": field("hosts", ["http://example.com:99999/*"]),
     "host pattern with an empty port": field("hosts", ["http://example.com:/*"]),
     "host pattern with an empty host": field("hosts", ["*://:80/*"]),
+    "name of combining marks only": field("name", "\u0300\u0301"),
+    "Khmer inherent vowel in the name": field("name", "Tab\u17b4Tidy"),
+    "Khmer inherent vowel as the author": field("author", "\u17b5"),
+    "three combining marks on one letter": field("name", "Tabe\u0301\u0302\u0303"),
     "screenshot 2561 px wide": screenshot("wide.png", png(2561, 1)),
     "screenshot 2561 px high": screenshot("high.png", png(1, 2561)),
     "PNG claiming a huge height": screenshot("tall.png", png(100, 1_000_000_000, pixels=False)),
@@ -203,6 +209,8 @@ class StoreTest(unittest.TestCase):
             "PNG of only an empty IHDR": "IHDR",
             "PNG with a 14-byte IHDR": "IHDR",
             "JPEG with two frame headers": "frame header",
+            "three combining marks on one letter": "combining marks",
+            "name of combining marks only": "visible",
         }
         for name, reason in reasons.items():
             with self.subTest(name):
@@ -230,6 +238,12 @@ class StoreTest(unittest.TestCase):
         for pattern, shown in VALID_PATTERNS.items():
             with self.subTest(pattern):
                 self.assertEqual(store.plain_host(pattern), shown)
+
+    def test_plain_text_with_combining_marks_is_accepted(self):
+        for text in VALID_TEXT:
+            with self.subTest(text):
+                self.catalog["extensions"][2]["name"] = text
+                store.check(self.catalog, self.root)
 
     def test_permissions_read_as_plain_language(self):
         for name in KNOWN_PERMISSIONS:

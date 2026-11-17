@@ -58,7 +58,9 @@ LOCAL_FILES = re.compile(r"file://(?:localhost)?/\S*")
 OPAQUE = re.compile(r"(?:data|urn):\S+")
 PERMISSION = re.compile(r"[A-Za-z][A-Za-z0-9._]{0,63}")
 INVISIBLE = {"Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp"}
-FILLERS = {0x034F, 0x115F, 0x1160, 0x2800, 0x3164, 0xFFA0, *range(0x180B, 0x1810), *range(0xFE00, 0xFE10), *range(0xE0100, 0xE01F0)}
+FILLERS = {0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x2800, 0x3164, 0xFFA0, *range(0x180B, 0x1810), *range(0xFE00, 0xFE10), *range(0xE0100, 0xE01F0)}
+MARKS = {"Mn", "Me"}
+MAX_MARKS = 2
 LIMITS = {"name": 64, "description": 300, "author": 80, "version": 64, "homepage": 300}
 ITEM_LIMIT = 256
 FIELDS = {
@@ -163,6 +165,14 @@ def hidden(c):
 def clean(value, key, limit):
     if not value.strip() or len(value) > limit or any(hidden(c) for c in value):
         raise Invalid(f"{key} must be one line of at most {limit} characters without control or invisible characters")
+    text = unicodedata.normalize("NFD", value)
+    if all(c.isspace() or unicodedata.category(c) in MARKS for c in text):
+        raise Invalid(f"{key} must contain visible characters")
+    marks = 0
+    for c in text:
+        marks = marks + 1 if unicodedata.category(c) in MARKS else 0
+        if marks > MAX_MARKS:
+            raise Invalid(f"{key} may have at most {MAX_MARKS} combining marks on one character")
     return value
 
 
