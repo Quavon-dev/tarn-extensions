@@ -12,6 +12,9 @@ SITE = "https://extension.tarnbrowser.com"
 DOMAIN = "extension.tarnbrowser.com"
 KIND = "tarn-extension-catalog"
 STATIC = Path(__file__).resolve().parent / "static"
+LANDING = "https://tarnbrowser.com/"
+GET_TARN = LANDING + "#get-tarn"
+ARROW = '<span class="arrow" aria-hidden="true"><svg viewBox="0 0 16 16" width="14" height="14"><path d="M3 8h10M9 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>'
 
 CATEGORIES = {
     "privacy-security": "Privacy & Security",
@@ -168,14 +171,33 @@ def page(root, title, body, description=""):
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
-<header class="top"><a class="brand" href="{root}"><span class="mark" aria-hidden="true"></span>Tarn Extensions</a></header>
-<main id="main">
+<header class="top"><div class="wrap bar">
+<a class="brand" href="{root}"><img src="{root}mark.svg" alt="" width="30" height="30">Tarn <span>Extensions</span></a>
+<a class="pill outline" href="{GET_TARN}">Get Tarn</a>
+</div></header>
+<main id="main" class="wrap">
 {body}
 </main>
-<footer class="bottom">
-<p>Every extension here is reviewed by the Tarn maintainers and listed in the signed catalog (<a href="{root}index.json">index.json</a>, <a href="{root}index.sig">index.sig</a>).</p>
-<p><a href="https://github.com/Quavon-dev/tarn-extensions">Source and submissions</a> · <a href="https://github.com/Quavon-dev/tarn-browser">Get Tarn</a></p>
-</footer>
+<footer class="bottom"><div class="wrap">
+<div class="columns">
+<div class="about">
+<p class="brand"><img src="{root}mark.svg" alt="" width="28" height="28">Tarn <span>Extensions</span></p>
+<p>Every extension here is reviewed by the Tarn maintainers and listed in the signed catalog.</p>
+</div>
+<nav aria-label="Store"><h2>Store</h2><ul>
+<li><a href="{root}">All extensions</a></li>
+<li><a href="{root}index.json">Signed catalog</a></li>
+<li><a href="{root}index.sig">Signature</a></li>
+<li><a href="https://github.com/Quavon-dev/tarn-extensions">Source and submissions</a></li>
+</ul></nav>
+<nav aria-label="Tarn"><h2>Tarn</h2><ul>
+<li><a href="{LANDING}">tarnbrowser.com</a></li>
+<li><a href="{GET_TARN}">Download</a></li>
+<li><a href="{LANDING}privacy">Privacy</a></li>
+</ul></nav>
+</div>
+<p class="fine"><a href="https://quavon.de">Made by Quavon</a><span>No cookies. No analytics.</span></p>
+</div></footer>
 </body>
 </html>
 """
@@ -186,7 +208,7 @@ def search_form(root, category=None):
     return f"""<form class="search" role="search" action="{root}" method="get">
 <label class="visually-hidden" for="q">Search extensions</label>
 <input id="q" name="q" type="search" placeholder="Search extensions" autocomplete="off" spellcheck="false">{hidden}
-<button type="submit">Search</button>
+<button class="pill solid" type="submit">Search</button>
 </form>"""
 
 
@@ -231,6 +253,10 @@ def detail(entry, icon, shots):
         f'<li><a href="../../{s["path"]}"><img src="../../{s["path"]}" width="{s["width"]}" height="{s["height"]}" alt="{e(name)}, screenshot {n} of {len(shots)}" loading="lazy"></a></li>'
         for n, s in enumerate(shots, 1)
     )
+    screenshots = (
+        f'<section aria-labelledby="shots"><h2 id="shots">Screenshots</h2>'
+        f'<div class="shots" role="region" aria-labelledby="shots" tabindex="0"><ul>{gallery}</ul></div></section>'
+    )
     size = f"{entry['size'] / 1024:.0f} KB" if isinstance(entry.get("size"), int) else ""
     body = f"""<article class="detail">
 <div class="hero">
@@ -238,11 +264,11 @@ def detail(entry, icon, shots):
 <div>
 <h1>{e(name)}</h1>
 <p class="byline">by {e(entry['author'])} · <a href="../../category/{entry['category']}/">{e(CATEGORIES[entry['category']])}</a></p>
-<a class="install" href="{SITE}/install/{i}">Install in Tarn</a>
+<a class="pill solid" href="{SITE}/install/{i}">Install in Tarn{ARROW}</a>
 </div>
 </div>
 <p class="lead">{e(entry['description'])}</p>
-{f'<h2>Screenshots</h2><ul class="shots">{gallery}</ul>' if shots else ''}
+{screenshots if shots else ''}
 <div class="facts">
 <section><h2>What it can do</h2><ul>{rows}</ul></section>
 <section><h2>Sites it works on</h2><ul>{sites}</ul></section>
@@ -263,7 +289,7 @@ def install(entry):
 <h1>Open this link in Tarn to install {e(name)}</h1>
 <p>Tarn asks before it installs anything and shows what the extension can do. This page offers no download.</p>
 <p class="url"><code>{SITE}/install/{i}</code></p>
-<p><a href="../../extension/{i}/">About {e(name)}</a> · <a href="https://github.com/Quavon-dev/tarn-browser">Get Tarn</a></p>
+<p class="actions"><a class="pill solid" href="{GET_TARN}">Get Tarn{ARROW}</a><a class="pill outline" href="../../extension/{i}/">About {e(name)}</a></p>
 </article>"""
     return page("../../", f"Install {name} · Tarn Extensions", body)
 
@@ -285,11 +311,10 @@ def build(index_path, sig_path, root, out):
     (out / "index.json").write_bytes(raw)
     (out / "index.sig").write_bytes(sig_path.read_bytes())
     (out / "CNAME").write_text(DOMAIN + "\n")
-    for name in ("style.css", "search.js"):
-        shutil.copyfile(STATIC / name, out / name)
+    shutil.copytree(STATIC, out, dirs_exist_ok=True)
     search = [{k: x[k] for k in ("id", "name", "description", "author", "category")} for x in entries]
     write(out / "search.json", json.dumps(search, ensure_ascii=False, indent=1) + "\n")
-    intro = "<h1>Extensions for Tarn</h1><p class=\"lead\">Reviewed and signed by the Tarn maintainers. Install with one click in Tarn.</p>"
+    intro = "<h1>Extensions <span class=\"lake\">for Tarn.</span></h1><p class=\"lead\">Reviewed and signed by the Tarn maintainers. Install with one click in Tarn.</p>"
     write(out / "index.html", page("./", "Tarn Extensions", intro + listing("./", entries)))
     for cat, label in CATEGORIES.items():
         members = [x for x in entries if x["category"] == cat]

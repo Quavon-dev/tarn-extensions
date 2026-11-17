@@ -93,7 +93,8 @@ After every signing run, the **Sign catalog** workflow builds the site from the 
 signed and deploys it to GitHub Pages. `site/store.py` (Python 3, standard library only) checks the
 store fields and writes plain HTML, the stylesheet and a small search script; `/index.json` and
 `/index.sig` are the signed files, byte for byte, and `/search.json` lists id, name, description,
-author and category. The pages load nothing from other sites.
+author and category. The pages load nothing from other sites: the Geist and Funnel Display fonts
+are served from `site/static/fonts/` under the SIL Open Font License, whose text sits next to them.
 
 Build it locally from a signed index:
 
