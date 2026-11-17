@@ -18,7 +18,8 @@ env:
 
 jobs:
   # Signs the catalog with a throwaway key, which runs the same checks Tarn applies to the index,
-  # and checks every package against its entry. No secret is used.
+  # checks every package and the store fields against its entry, and builds the store website from
+  # the fixtures. No secret is used.
   check:
     runs-on: ubuntu-24.04
     permissions:
@@ -45,6 +46,21 @@ jobs:
           umask 077
           tarn/target/release/filter-bundle keygen | sed -n 's/^FILTER_SIGNING_KEY=//p' > "$RUNNER_TEMP/throwaway.key"
           tarn/target/release/filter-bundle catalog --kind extension --in index.json --key "$RUNNER_TEMP/throwaway.key" --out out
+      - name: Every entry's store fields are valid
+        run: python3 -I catalog/site/store.py check catalog/catalog.json --root catalog
+      - name: The store website builds from the fixtures
+        run: |
+          python3 -I catalog/site/store.py check catalog/site/fixtures/catalog.json --root catalog/site/fixtures
+          now="$(date -u +%s)"
+          jq --argjson now "$now" '{kind, version: $now, created: $now, extensions, revoked}' catalog/site/fixtures/catalog.json > fixture-index.json
+          tarn/target/release/filter-bundle catalog --kind extension --in fixture-index.json --key "$RUNNER_TEMP/throwaway.key" --out fixture-signed
+          python3 -I catalog/site/store.py build --index fixture-signed/index.json --sig fixture-signed/index.sig --root catalog/site/fixtures --out fixture-site
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fixture-site
+          path: fixture-site/
+          if-no-files-found: error
+          retention-days: 7
       - name: Every package matches its entry
         run: |
           jq -r '.extensions[] | [.id, .url, .sha256, (.size | tostring)] | @tsv' catalog/catalog.json |

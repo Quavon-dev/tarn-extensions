@@ -1,0 +1,57 @@
+{
+  "kind": "tarn-extension-catalog",
+  "extensions": [
+    {
+      "id": "quiet-reader",
+      "name": "Quiet Reader",
+      "description": "Turns cluttered articles into a calm, readable page with your choice of font and width.",
+      "version": "1.2.0",
+      "url": "https://github.com/Quavon-dev/tarn-extensions/releases/download/quiet-reader-1.2.0/quiet-reader.zip",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "size": 48213,
+      "permissions": ["activeTab", "storage"],
+      "optional_permissions": [],
+      "hosts": [],
+      "author": "Fixture Labs",
+      "homepage": "https://example.com/quiet-reader",
+      "category": "reading",
+      "icon": "assets/quiet-reader/icon.png",
+      "screenshots": ["assets/quiet-reader/light.png", "assets/quiet-reader/dark.jpg"]
+    },
+    {
+      "id": "tracker-lens",
+      "name": "Tracker Lens",
+      "description": "Shows which trackers a page tried to load and blocks the ones you pick.",
+      "version": "0.9.1",
+      "url": "https://github.com/Quavon-dev/tarn-extensions/releases/download/tracker-lens-0.9.1/tracker-lens.zip",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "size": 91540,
+      "permissions": ["declarativeNetRequest", "storage"],
+      "optional_permissions": [],
+      "hosts": ["*://*/*"],
+      "author": "Fixture Labs",
+      "homepage": "https://example.com/tracker-lens",
+      "category": "privacy-security",
+      "icon": "assets/tracker-lens/icon.png",
+      "screenshots": ["assets/tracker-lens/panel.png"]
+    },
+    {
+      "id": "tab-tidy",
+      "name": "Tab Tidy",
+      "description": "Groups open tabs by site and closes duplicates with one click.",
+      "version": "2.0.0",
+      "url": "https://github.com/Quavon-dev/tarn-extensions/releases/download/tab-tidy-2.0.0/tab-tidy.zip",
+      "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "size": 20480,
+      "permissions": ["storage"],
+      "optional_permissions": ["activeTab"],
+      "hosts": ["*://*.example.org/*"],
+      "author": "Example <Tools> & Co",
+      "homepage": "https://example.org/tab-tidy",
+      "category": "productivity",
+      "icon": "assets/tab-tidy/icon.png",
+      "screenshots": []
+    }
+  ],
+  "revoked": []
+}
