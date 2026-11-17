@@ -270,8 +270,10 @@ h2 { font-size: 1.375rem; letter-spacing: -0.02em; margin: 40px 0 14px; }
 
 .empty { color: var(--muted); margin-bottom: 64px; }
 
-.hero { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; margin-top: 48px; }
-.hero h1 { margin: 0; font-size: clamp(2.25rem, 5vw, 3.5rem); }
+.hero { --title: clamp(2.25rem, 5vw, 3.5rem); display: flex; gap: clamp(16px, 3vw, 24px); align-items: flex-start; margin-top: 48px; }
+.hero > div { flex: 1; min-width: 0; }
+.hero h1 { margin: 0; font-size: var(--title); }
+.hero img { margin-top: calc(var(--title) * 0.16); }
 .byline { color: var(--muted); margin: 8px 0 18px; }
 .detail .lead { margin-top: 28px; }
 
