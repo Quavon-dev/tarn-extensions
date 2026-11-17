@@ -73,6 +73,11 @@ ICON_PX = (128, 512)
 SHOT_BYTES = 1 << 20
 SHOT_PX = 2560
 MAX_SHOTS = 5
+PNG_DEPTHS = {0: {1, 2, 4, 8, 16}, 2: {8, 16}, 3: {1, 2, 4, 8}, 4: {8, 16}, 6: {8, 16}}
+PNG_TEXT = {b"tEXt", b"zTXt", b"iTXt"}
+PNG_TEXT_BYTES = 4096
+JPEG_METADATA = {0xE1: "Exif or XMP", 0xED: "IPTC", 0xFE: "a comment"}
+STRIP = "export the image again without metadata (Exif, XMP, IPTC, comments), which can hold the camera, place or author"
 CSP = "default-src 'self'; img-src 'self'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'self'"
 
 
@@ -83,7 +88,7 @@ class Invalid(Exception):
 def png_size(data):
     if data[:8] != b"\x89PNG\r\n\x1a\n":
         raise Invalid("not a PNG")
-    i, size, chunk = 8, None, b""
+    i, size, chunk, text, idat = 8, None, b"", 0, False
     while chunk != b"IEND":
         if i + 12 > len(data):
             raise Invalid("PNG ends before its IEND chunk")
@@ -97,16 +102,28 @@ def png_size(data):
             if length != 13:
                 raise Invalid("PNG IHDR must be 13 bytes")
             size = struct.unpack(">II", data[i + 8 : i + 16])
+            depth, colour, compression, filtering, interlace = data[i + 16 : i + 21]
+            if depth not in PNG_DEPTHS.get(colour, ()) or compression or filtering or interlace > 1:
+                raise Invalid("PNG has an invalid bit depth, colour type, compression, filter or interlace method")
+        body = data[i + 8 : end - 4]
+        if chunk == b"eXIf" or (chunk == b"iTXt" and body.startswith(b"XML:com.adobe.xmp\x00")):
+            raise Invalid(f"PNG has metadata ({chunk.decode()}); {STRIP}")
+        text += length if chunk in PNG_TEXT else 0
+        idat = idat or chunk == b"IDAT"
         i = end
     if i != len(data):
         raise Invalid("data after the PNG's IEND chunk")
+    if not idat:
+        raise Invalid("PNG has no IDAT image data")
+    if text > PNG_TEXT_BYTES:
+        raise Invalid(f"PNG text chunks must total at most {PNG_TEXT_BYTES // 1024} KiB")
     return size
 
 
 def jpeg_size(data):
     if data[:2] != b"\xff\xd8":
         raise Invalid("not a JPEG")
-    i, size = 2, None
+    i, size, scan = 2, None, False
     while True:
         if i + 2 > len(data) or data[i] != 0xFF:
             raise Invalid("damaged JPEG")
@@ -124,6 +141,8 @@ def jpeg_size(data):
         length = struct.unpack(">H", data[i + 2 : i + 4])[0]
         if length < 2 or i + 2 + length > len(data):
             raise Invalid("damaged JPEG segment")
+        if marker in JPEG_METADATA:
+            raise Invalid(f"JPEG has metadata ({JPEG_METADATA[marker]}); {STRIP}")
         if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
             if size is not None or length < 7:
                 raise Invalid("JPEG must have exactly one frame header")
@@ -131,10 +150,15 @@ def jpeg_size(data):
             size = (width, height)
         i += 2 + length
         if marker == 0xDA:
+            if size is None:
+                raise Invalid("JPEG scan before its frame header")
+            scan = True
             while i + 1 < len(data) and not (data[i] == 0xFF and data[i + 1] not in (0x00, *range(0xD0, 0xD8))):
                 i += 1
     if size is None:
         raise Invalid("JPEG without a frame header")
+    if not scan:
+        raise Invalid("JPEG has no scan")
     if i + 2 != len(data):
         raise Invalid("data after the JPEG's end marker")
     return size

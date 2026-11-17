@@ -65,6 +65,9 @@ only `main` may use; the maintainer keeps an offline copy.
    | `icon` | Exactly `assets/<id>/icon.png`: a square PNG, 128 to 512 px, at most 256 KiB |
    | `screenshots` | 0 to 5 paths `assets/<id>/<name>.png` or `.jpg` (`<name>` in lowercase letters, digits, `-` and `_`), each a complete file of at most 1 MiB and 2560 × 2560 px |
 
+   Images must be complete PNG or JPEG files without metadata: no Exif, XMP, IPTC or comments, and at
+   most 4 KiB of PNG text chunks. Export them again without metadata if the check refuses one.
+
    `name` (at most 64 characters), `description` (300), `author` (80), `version` (64) and `homepage`
    (300) are one line of visible text without control or invisible characters and with at most two
    combining marks on a character; Tarn rejects an index above 256 KiB.

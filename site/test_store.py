@@ -63,6 +63,21 @@ def six_distinct(c, root):
 EMPTY_IHDR = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", b"")
 
 
+def png_with(*chunks, depth=8, colour=0, idat=True):
+    header = chunk(b"IHDR", struct.pack(">IIBBBBB", 16, 16, depth, colour, 0, 0, 0))
+    data = chunk(b"IDAT", zlib.compress(b"\x00" * 17 * 16)) if idat else b""
+    return b"\x89PNG\r\n\x1a\n" + header + b"".join(chunks) + data + chunk(b"IEND", b"")
+
+
+def segment(marker, payload):
+    return bytes([0xFF, marker]) + struct.pack(">H", len(payload) + 2) + payload
+
+
+def jpeg_with(*segments):
+    data = fixture_bytes("assets/quiet-reader/dark.jpg")
+    return data[:2] + b"".join(segments) + data[2:]
+
+
 VALID_PATTERNS = {
     "<all_urls>": "every site",
     "*://*/*": "every site",
@@ -148,6 +163,16 @@ INVALID = {
     "Khmer inherent vowel in the name": field("name", "Tab\u17b4Tidy"),
     "Khmer inherent vowel as the author": field("author", "\u17b5"),
     "three combining marks on one letter": field("name", "Tabe\u0301\u0302\u0303"),
+    "PNG without IDAT": screenshot("noidat.png", png_with(idat=False)),
+    "PNG with bit depth 4 in truecolour": screenshot("depth.png", png_with(depth=4, colour=2)),
+    "PNG with an unknown colour type": screenshot("colour.png", png_with(colour=5)),
+    "PNG with an eXIf chunk": screenshot("exif.png", png_with(chunk(b"eXIf", b"MM\x00*\x00\x00\x00\x08"))),
+    "PNG with 5 KiB of text chunks": screenshot("text.png", png_with(chunk(b"tEXt", b"Comment\x00" + b"x" * 5000))),
+    "JPEG without a scan": screenshot("noscan.jpg", b"\xff\xd8" + jpeg_frame(10, 10) + b"\xff\xd9"),
+    "JPEG with Exif": screenshot("exif.jpg", jpeg_with(segment(0xE1, b"Exif\x00\x00MM\x00*"))),
+    "JPEG with XMP": screenshot("xmp.jpg", jpeg_with(segment(0xE1, b"http://ns.adobe.com/xap/1.0/\x00<x:xmpmeta/>"))),
+    "JPEG with IPTC": screenshot("iptc.jpg", jpeg_with(segment(0xED, b"Photoshop 3.0\x00"))),
+    "JPEG with a comment": screenshot("comment.jpg", jpeg_with(segment(0xFE, b"made on my phone"))),
     "screenshot 2561 px wide": screenshot("wide.png", png(2561, 1)),
     "screenshot 2561 px high": screenshot("high.png", png(1, 2561)),
     "PNG claiming a huge height": screenshot("tall.png", png(100, 1_000_000_000, pixels=False)),
@@ -209,6 +234,16 @@ class StoreTest(unittest.TestCase):
             "PNG of only an empty IHDR": "IHDR",
             "PNG with a 14-byte IHDR": "IHDR",
             "JPEG with two frame headers": "frame header",
+            "PNG without IDAT": "IDAT",
+            "PNG with bit depth 4 in truecolour": "bit depth",
+            "PNG with an unknown colour type": "bit depth",
+            "PNG with an eXIf chunk": "metadata",
+            "PNG with 5 KiB of text chunks": "text",
+            "JPEG without a scan": "scan",
+            "JPEG with Exif": "metadata",
+            "JPEG with XMP": "metadata",
+            "JPEG with IPTC": "metadata",
+            "JPEG with a comment": "metadata",
             "three combining marks on one letter": "combining marks",
             "name of combining marks only": "visible",
         }
@@ -244,6 +279,11 @@ class StoreTest(unittest.TestCase):
             with self.subTest(text):
                 self.catalog["extensions"][2]["name"] = text
                 store.check(self.catalog, self.root)
+
+    def test_small_text_chunks_are_accepted(self):
+        (self.root / "assets/tab-tidy/note.png").write_bytes(png_with(chunk(b"tEXt", b"Software\x00" + b"x" * 100), colour=2))
+        self.catalog["extensions"][2]["screenshots"] = ["assets/tab-tidy/note.png"]
+        store.check(self.catalog, self.root)
 
     def test_permissions_read_as_plain_language(self):
         for name in KNOWN_PERMISSIONS:
