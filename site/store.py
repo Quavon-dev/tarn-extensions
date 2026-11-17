@@ -5,6 +5,8 @@ import re
 import shutil
 import struct
 import sys
+import unicodedata
+import zlib
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -34,12 +36,20 @@ PERMISSIONS = {
     "declarativeNetRequest": "Block or change network requests by rules",
 }
 
-BIDI = set("\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069")
 ID = re.compile(r"[a-z0-9-]{1,64}")
+HOST = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}")
+INVISIBLE = {"Cc", "Cf", "Cs", "Co", "Zl", "Zp"}
+LIMITS = {"name": 64, "description": 300, "author": 80, "version": 64, "homepage": 300}
+ITEM_LIMIT = 256
+FIELDS = {
+    "id": str, "name": str, "description": str, "version": str, "url": str, "sha256": str, "size": int,
+    "author": str, "homepage": str, "category": str, "icon": str,
+}
+LISTS = ("permissions", "optional_permissions", "hosts", "screenshots")
 ICON_BYTES = 256 << 10
 ICON_PX = (128, 512)
 SHOT_BYTES = 1 << 20
-SHOT_WIDTH = 2560
+SHOT_PX = 2560
 MAX_SHOTS = 5
 CSP = "default-src 'self'; img-src 'self'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'self'"
 
@@ -49,94 +59,147 @@ class Invalid(Exception):
 
 
 def png_size(data):
-    if data[:8] != b"\x89PNG\r\n\x1a\n" or data[12:16] != b"IHDR" or len(data) < 24:
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
         raise Invalid("not a PNG")
-    return struct.unpack(">II", data[16:24])
+    i, size, chunk = 8, None, b""
+    while chunk != b"IEND":
+        if i + 12 > len(data):
+            raise Invalid("PNG ends before its IEND chunk")
+        length, chunk = struct.unpack(">I4s", data[i : i + 8])
+        end = i + 12 + length
+        if end > len(data) or zlib.crc32(data[i + 4 : end - 4]) != struct.unpack(">I", data[end - 4 : end])[0]:
+            raise Invalid("damaged PNG chunk")
+        if (i == 8) != (chunk == b"IHDR"):
+            raise Invalid("PNG must start with one IHDR chunk")
+        if chunk == b"IHDR":
+            size = struct.unpack(">II", data[i + 8 : i + 16])
+        i = end
+    if i != len(data):
+        raise Invalid("data after the PNG's IEND chunk")
+    return size
 
 
 def jpeg_size(data):
-    if data[:3] != b"\xff\xd8\xff":
+    if data[:2] != b"\xff\xd8":
         raise Invalid("not a JPEG")
-    i = 2
-    while i + 9 < len(data):
-        if data[i] != 0xFF:
+    i, size = 2, None
+    while True:
+        if i + 2 > len(data) or data[i] != 0xFF:
             raise Invalid("damaged JPEG")
         marker = data[i + 1]
         if marker == 0xFF:
             i += 1
             continue
+        if marker == 0xD9:
+            break
+        if 0xD0 <= marker <= 0xD7 or marker == 0x01:
+            i += 2
+            continue
+        if i + 4 > len(data):
+            raise Invalid("damaged JPEG")
         length = struct.unpack(">H", data[i + 2 : i + 4])[0]
-        if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+        if length < 2 or i + 2 + length > len(data):
+            raise Invalid("damaged JPEG segment")
+        if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC) and length >= 7:
             height, width = struct.unpack(">HH", data[i + 5 : i + 9])
-            return width, height
+            size = (width, height)
         i += 2 + length
-    raise Invalid("JPEG without a frame header")
+        if marker == 0xDA:
+            while i + 1 < len(data) and not (data[i] == 0xFF and data[i + 1] not in (0x00, *range(0xD0, 0xD8))):
+                i += 1
+    if size is None:
+        raise Invalid("JPEG without a frame header")
+    if i + 2 != len(data):
+        raise Invalid("data after the JPEG's end marker")
+    return size
 
 
-def image(root, entry_id, rel, pattern):
-    if not isinstance(rel, str) or not re.fullmatch(rf"assets/{entry_id}/{pattern}", rel):
+def image(root, entry_id, rel, pattern, max_bytes):
+    if not re.fullmatch(rf"assets/{entry_id}/{pattern}", rel):
         raise Invalid(f"{rel!r} must match assets/{entry_id}/{pattern}")
     path = root / rel
     if path.is_symlink() or not path.is_file() or root.resolve() not in path.resolve().parents:
         raise Invalid(f"{rel} is missing or not a regular file")
+    if path.stat().st_size > max_bytes:
+        raise Invalid(f"{rel} must be at most {max_bytes // 1024} KiB")
     data = path.read_bytes()
-    size = (png_size if rel.endswith(".png") else jpeg_size)(data)
-    return {"path": rel, "bytes": len(data), "width": size[0], "height": size[1]}
+    width, height = (png_size if rel.endswith(".png") else jpeg_size)(data)
+    if not width or not height:
+        raise Invalid(f"{rel} has no size")
+    return {"path": rel, "bytes": len(data), "width": width, "height": height}
 
 
-def text(entry, key):
-    value = entry.get(key)
-    if not isinstance(value, str) or not value.strip() or any(ord(c) < 32 or 0x7f <= ord(c) <= 0x9f or c in BIDI for c in value):
-        raise Invalid(f"{key} must be a non-empty single-line string without control characters")
+def clean(value, key, limit):
+    if not value.strip() or len(value) > limit or any(unicodedata.category(c) in INVISIBLE for c in value):
+        raise Invalid(f"{key} must be one line of at most {limit} characters without control or invisible characters")
     return value
 
 
-def store_fields(entry, root):
-    entry_id = entry.get("id")
-    if not isinstance(entry_id, str) or not ID.fullmatch(entry_id):
-        raise Invalid("id must be lowercase letters, digits and - (at most 64)")
-    for key in ("name", "description", "author", "version"):
-        text(entry, key)
-    homepage = text(entry, "homepage")
-    parts = urlsplit(homepage)
-    if parts.scheme != "https" or not parts.hostname or parts.username or parts.password or " " in homepage:
-        raise Invalid("homepage must be an https URL")
-    if entry.get("category") not in CATEGORIES:
-        raise Invalid(f"category must be one of {', '.join(CATEGORIES)}")
-    for key in ("permissions", "optional_permissions", "hosts"):
+def homepage_host(url):
+    parts = urlsplit(url) if url.isascii() and "\\" not in url and not any(c.isspace() for c in url) else None
+    host = parts and parts.hostname
+    if not host or parts.scheme != "https" or host != parts.netloc or not HOST.fullmatch(host):
+        raise Invalid("homepage must be an https URL with a plain ASCII host (punycode for others), no user, password or port")
+    return host
+
+
+def types(entry):
+    for key, kind in FIELDS.items():
+        value = entry.get(key)
+        if not isinstance(value, kind) or isinstance(value, bool):
+            raise Invalid(f"{key} must be {'text' if kind is str else 'a whole number'}")
+    for key in LISTS:
         value = entry.get(key, [])
         if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
             raise Invalid(f"{key} must be a list of strings")
-    if entry.get("icon") != f"assets/{entry_id}/icon.png":
+
+
+def store_fields(entry, root):
+    types(entry)
+    entry_id = entry["id"]
+    for key, limit in LIMITS.items():
+        clean(entry[key], key, limit)
+    for key in LISTS:
+        for value in entry.get(key, []):
+            clean(value, key, ITEM_LIMIT)
+    host = homepage_host(entry["homepage"])
+    if entry["category"] not in CATEGORIES:
+        raise Invalid(f"category must be one of {', '.join(CATEGORIES)}")
+    if entry["icon"] != f"assets/{entry_id}/icon.png":
         raise Invalid(f"icon must be assets/{entry_id}/icon.png")
-    icon = image(root, entry_id, entry["icon"], r"icon\.png")
+    icon = image(root, entry_id, entry["icon"], r"icon\.png", ICON_BYTES)
     if icon["width"] != icon["height"] or not ICON_PX[0] <= icon["width"] <= ICON_PX[1]:
         raise Invalid(f"icon must be square, {ICON_PX[0]} to {ICON_PX[1]} px")
-    if icon["bytes"] > ICON_BYTES:
-        raise Invalid("icon must be at most 256 KiB")
     shots = entry.get("screenshots", [])
-    if not isinstance(shots, list) or len(shots) > MAX_SHOTS or len(set(map(str, shots))) != len(shots):
+    if len(shots) > MAX_SHOTS or len(set(shots)) != len(shots):
         raise Invalid(f"screenshots must list at most {MAX_SHOTS} distinct paths")
-    checked = [image(root, entry_id, s, r"[a-z0-9][a-z0-9_-]*\.(png|jpg)") for s in shots]
+    checked = [image(root, entry_id, s, r"[a-z0-9][a-z0-9_-]*\.(png|jpg)", SHOT_BYTES) for s in shots]
     for shot in checked:
-        if shot["bytes"] > SHOT_BYTES or not 0 < shot["width"] <= SHOT_WIDTH or shot["height"] == 0:
-            raise Invalid(f"{shot['path']} must be at most 1 MiB and {SHOT_WIDTH} px wide")
-    return icon, checked
+        if shot["width"] > SHOT_PX or shot["height"] > SHOT_PX:
+            raise Invalid(f"{shot['path']} must be at most {SHOT_PX} px wide and high")
+    return {"icon": icon, "shots": checked, "host": host}
 
 
 def check(catalog, root):
-    if catalog.get("kind") != KIND or not isinstance(catalog.get("extensions"), list):
+    if not isinstance(catalog, dict) or catalog.get("kind") != KIND or not isinstance(catalog.get("extensions"), list):
         raise Invalid(f"kind must be {KIND} with an extensions list")
+    revoked = catalog.get("revoked", [])
+    if not isinstance(revoked, list) or not all(isinstance(r, dict) and isinstance(r.get("id"), str) and isinstance(r.get("sha256"), str) for r in revoked):
+        raise Invalid("revoked must list objects with a string id and sha256")
     seen, errors, checked = set(), [], {}
     for n, entry in enumerate(catalog["extensions"]):
-        label = entry.get("id", f"#{n}") if isinstance(entry, dict) else f"#{n}"
+        entry_id = entry.get("id") if isinstance(entry, dict) else None
+        valid_id = isinstance(entry_id, str) and ID.fullmatch(entry_id)
+        label = entry_id if valid_id else f"entry #{n + 1}"
         try:
             if not isinstance(entry, dict):
                 raise Invalid("an entry must be an object")
-            if entry.get("id") in seen:
+            if not valid_id:
+                raise Invalid("id must be lowercase letters, digits and - (at most 64)")
+            if entry_id in seen:
                 raise Invalid("duplicate id")
-            seen.add(entry.get("id"))
-            checked[entry["id"]] = store_fields(entry, root)
+            seen.add(entry_id)
+            checked[entry_id] = store_fields(entry, root)
         except (Invalid, ValueError) as err:
             errors.append(f"{label}: {err}")
     if errors:
@@ -241,7 +304,8 @@ def listing(root, entries, category=None):
 <ul class="grid" id="results">{cards}</ul>{empty}"""
 
 
-def detail(entry, icon, shots):
+def detail(entry, checked):
+    icon, shots = checked["icon"], checked["shots"]
     i, name = entry["id"], entry["name"]
     perms = [PERMISSIONS.get(p, p) for p in entry.get("permissions", [])]
     optional = [PERMISSIONS.get(p, p) for p in entry.get("optional_permissions", [])]
@@ -275,7 +339,7 @@ def detail(entry, icon, shots):
 <section><h2>Details</h2><dl>
 <dt>Version</dt><dd>{e(entry['version'])}</dd>
 {f'<dt>Size</dt><dd>{size}</dd>' if size else ''}
-<dt>Homepage</dt><dd><a href="{e(entry['homepage'])}" rel="noopener noreferrer">{e(urlsplit(entry['homepage']).hostname)}</a></dd>
+<dt>Homepage</dt><dd><a href="{e(entry['homepage'])}" rel="noopener noreferrer">{e(checked['host'])}</a></dd>
 </dl></section>
 </div>
 </article>"""
@@ -320,11 +384,10 @@ def build(index_path, sig_path, root, out):
         members = [x for x in entries if x["category"] == cat]
         write(out / "category" / cat / "index.html", page("../../", f"{label} · Tarn Extensions", f"<h1>{e(label)}</h1>" + listing("../../", members, cat)))
     for x in entries:
-        icon, shots = checked[x["id"]]
-        for asset in [icon, *shots]:
+        for asset in [checked[x["id"]]["icon"], *checked[x["id"]]["shots"]]:
             (out / asset["path"]).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(root / asset["path"], out / asset["path"])
-        write(out / "extension" / x["id"] / "index.html", detail(x, icon, shots))
+        write(out / "extension" / x["id"] / "index.html", detail(x, checked[x["id"]]))
         write(out / "install" / x["id"] / "index.html", install(x))
     write(out / "404.html", page("/", "Not found · Tarn Extensions", '<h1>Not found</h1><p>This page does not exist. <a href="/">All extensions</a></p>'))
     return len(entries)

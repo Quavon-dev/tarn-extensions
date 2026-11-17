@@ -59,11 +59,14 @@ only `main` may use; the maintainer keeps an offline copy.
 
    | Field | Rule |
    |---|---|
-   | `author` | Who publishes the extension, one line |
-   | `homepage` | An `https` URL |
+   | `author` | Who publishes the extension |
+   | `homepage` | An `https` URL with a lowercase ASCII host (punycode for other scripts) and no user, password or port |
    | `category` | One of the categories below |
    | `icon` | Exactly `assets/<id>/icon.png`: a square PNG, 128 to 512 px, at most 256 KiB |
-   | `screenshots` | 0 to 5 paths `assets/<id>/<name>.png` or `.jpg` (`<name>` in lowercase letters, digits, `-` and `_`), each at most 1 MiB and 2560 px wide |
+   | `screenshots` | 0 to 5 paths `assets/<id>/<name>.png` or `.jpg` (`<name>` in lowercase letters, digits, `-` and `_`), each a complete file of at most 1 MiB and 2560 × 2560 px |
+
+   `name` (at most 64 characters), `description` (300), `author` (80), `version` (64) and `homepage`
+   (300) are one line without control or invisible characters; Tarn rejects an index above 256 KiB.
 
    | `category` | Shown as |
    |---|---|
@@ -104,6 +107,7 @@ never on one inside a frame.
 Build it locally from a signed index:
 
 ```sh
+python3 -I -m unittest discover -s site
 python3 -I site/store.py check catalog.json
 python3 -I site/store.py build --index index.json --sig index.sig --root . --out _site
 python3 -m http.server --bind 127.0.0.1 --directory _site

@@ -46,6 +46,8 @@ jobs:
           umask 077
           tarn/target/release/filter-bundle keygen | sed -n 's/^FILTER_SIGNING_KEY=//p' > "$RUNNER_TEMP/throwaway.key"
           tarn/target/release/filter-bundle catalog --kind extension --in index.json --key "$RUNNER_TEMP/throwaway.key" --out out
+      - name: The store checks refuse bad entries
+        run: python3 -I -m unittest discover -s catalog/site
       - name: Every entry's store fields are valid
         run: python3 -I catalog/site/store.py check catalog/catalog.json --root catalog
       - name: The store website builds from the fixtures
