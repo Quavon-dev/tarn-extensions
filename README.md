@@ -43,10 +43,88 @@ only `main` may use; the maintainer keeps an offline copy.
      "size": 12345,
      "permissions": ["storage"],
      "optional_permissions": [],
-     "hosts": ["*://*.example.com/*"]
+     "hosts": ["*://*.example.com/*"],
+     "author": "Example Author",
+     "homepage": "https://example.com/",
+     "category": "productivity",
+     "icon": "assets/example/icon.png",
+     "screenshots": ["assets/example/main.png"]
    }
    ```
 
    `id` uses lowercase letters, digits and `-` (at most 64). `permissions` and `hosts` must match
    the manifest; Tarn shows them in its consent sheet.
-4. Open a pull request. Once it is merged into `main`, the workflow signs and publishes the new index.
+
+   The last five fields are for the store website only; Tarn ignores them.
+
+   | Field | Rule |
+   |---|---|
+   | `author` | Who publishes the extension |
+   | `homepage` | An `https` URL with a lowercase ASCII host (punycode for other scripts) and no user, password or port |
+   | `category` | One of the categories below |
+   | `icon` | Exactly `assets/<id>/icon.png`: a square PNG, 128 to 512 px, at most 256 KiB |
+   | `screenshots` | 0 to 5 paths `assets/<id>/<name>.png` or `.jpg` (`<name>` in lowercase letters, digits, `-` and `_`), each a complete file of at most 1 MiB and 2560 × 2560 px |
+
+   Images must be complete PNG or JPEG files without metadata: no Exif, XMP, IPTC or comments, and at
+   most 4 KiB of PNG text chunks. Export them again without metadata if the check refuses one.
+
+   `name` (at most 64 characters), `description` (300), `author` (80), `version` (64) and `homepage`
+   (300) are one line of visible text without control or invisible characters and with at most two
+   combining marks on a character; Tarn rejects an index above 256 KiB.
+   `hosts` lists every match pattern the package asks for, required or optional, word for word as Tarn
+   reads it: `<all_urls>`, `<scheme>://<host><path>` (scheme `*`, `http`, `https`, `ws`, `wss` or `ftp`;
+   host `*`, `*.<domain>`, `<domain>` or an IP literal, with an optional port; no user or password)
+   `file:///<path>`, `data:…` or `urn:…`. The store shows them as the sites the extension may ask for.
+
+   | `category` | Shown as |
+   |---|---|
+   | `privacy-security` | Privacy & Security |
+   | `productivity` | Productivity |
+   | `reading` | Reading |
+   | `appearance` | Appearance |
+   | `accessibility` | Accessibility |
+   | `developer` | Developer Tools |
+   | `shopping` | Shopping |
+   | `social` | Social & Communication |
+   | `other` | Other |
+
+4. Add the icon and screenshots under `assets/<id>/`.
+5. Open a pull request. The **Check** workflow validates every entry. Once it is merged into `main`,
+   the workflow signs and publishes the new index and rebuilds the store website.
+
+## Store website
+
+[extensions.tarnbrowser.com](https://extensions.tarnbrowser.com) lists the catalog with categories,
+search and an **Install in Tarn** button per extension, which links to
+`https://extensions.tarnbrowser.com/install/<id>`. Tarn recognises that link when you click it and
+opens its own consent sheet for the extension from its verified catalog copy; the website has no
+other channel into the browser.
+
+After every signing run, the **Sign catalog** workflow builds the site from the index it just
+signed and deploys it to GitHub Pages. `site/store.py` (Python 3, standard library only) checks the
+store fields and writes plain HTML, the stylesheet and a small search script; `/index.json` and
+`/index.sig` are the signed files, byte for byte, and `/search.json` lists id, name, description,
+author and category. The pages load nothing from other sites: the Geist and Funnel Display fonts
+are served from `site/static/fonts/` under the SIL Open Font License, whose text sits next to them.
+
+GitHub Pages cannot send response headers, so each page sets its Content Security Policy in a
+`<meta>` tag. Browsers ignore `frame-ancestors` there, so another site can frame the store; that
+gives it nothing, because Tarn acts only on an install link the user opens in a top-level tab and
+never on one inside a frame.
+
+Build it locally from a signed index:
+
+```sh
+python3 -I -m unittest discover -s site
+python3 -I site/store.py check catalog.json
+python3 -I site/store.py build --index index.json --sig index.sig --root . --out _site
+python3 -m http.server --bind 127.0.0.1 --directory _site
+```
+
+`site/fixtures/` holds a catalog of fictional extensions that the **Check** workflow signs with a
+throwaway key and builds as a preview (the `fixture-site` artifact). It is never published.
+
+## Trademarks
+
+"Tarn" and the Tarn logo (`site/static/mark.svg`) are trademarks of Quavon UG
+(haftungsbeschränkt) that this repository's licence does not cover; see [`TRADEMARKS.md`](TRADEMARKS.md).
