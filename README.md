@@ -96,6 +96,11 @@ store fields and writes plain HTML, the stylesheet and a small search script; `/
 author and category. The pages load nothing from other sites: the Geist and Funnel Display fonts
 are served from `site/static/fonts/` under the SIL Open Font License, whose text sits next to them.
 
+GitHub Pages cannot send response headers, so each page sets its Content Security Policy in a
+`<meta>` tag. Browsers ignore `frame-ancestors` there, so another site can frame the store; that
+gives it nothing, because Tarn acts only on an install link the user opens in a top-level tab and
+never on one inside a frame.
+
 Build it locally from a signed index:
 
 ```sh

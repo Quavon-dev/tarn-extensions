@@ -41,7 +41,7 @@ ICON_PX = (128, 512)
 SHOT_BYTES = 1 << 20
 SHOT_WIDTH = 2560
 MAX_SHOTS = 5
-CSP = "default-src 'self'; img-src 'self'; script-src 'self'; style-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+CSP = "default-src 'self'; img-src 'self'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'self'"
 
 
 class Invalid(Exception):
