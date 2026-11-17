@@ -16,6 +16,8 @@ KIND = "tarn-extension-catalog"
 STATIC = Path(__file__).resolve().parent / "static"
 LANDING = "https://tarnbrowser.com/"
 GET_TARN = LANDING + "#get-tarn"
+PRIVACY = LANDING + "privacy#extension-store"
+IMPRINT = LANDING + "imprint"
 ARROW = '<span class="arrow" aria-hidden="true"><svg viewBox="0 0 16 16" width="14" height="14"><path d="M3 8h10M9 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>'
 
 CATEGORIES = {
@@ -349,7 +351,8 @@ def page(root, title, body, description=""):
 <nav aria-label="Tarn"><h2>Tarn</h2><ul>
 <li><a href="{LANDING}">tarnbrowser.com</a></li>
 <li><a href="{GET_TARN}">Download</a></li>
-<li><a href="{LANDING}privacy">Privacy</a></li>
+<li><a href="{PRIVACY}">Privacy</a></li>
+<li><a href="{IMPRINT}">Imprint</a></li>
 </ul></nav>
 </div>
 <p class="fine"><a href="https://quavon.de">Made by Quavon</a><span>No cookies. No analytics.</span></p>

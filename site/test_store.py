@@ -330,6 +330,13 @@ class StoreTest(unittest.TestCase):
         self.assertIn(">example.org</a>", page)
         self.assertIn("<li>example.org and its subdomains</li>", page)
         self.assertIn("<li>every site</li>", site[Path("extension/tracker-lens/index.html")].decode())
+        pages = [p for p in site if p.suffix == ".html"]
+        self.assertGreater(len(pages), 10)
+        for path in pages:
+            with self.subTest(str(path)):
+                html = site[path].decode()
+                self.assertIn('<a href="https://tarnbrowser.com/imprint">Imprint</a>', html)
+                self.assertIn('<a href="https://tarnbrowser.com/privacy#extension-store">Privacy</a>', html)
 
 
 if __name__ == "__main__":
