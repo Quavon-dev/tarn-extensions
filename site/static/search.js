@@ -5,7 +5,7 @@
   const searchUrl = new URL("search.json", script.src);
 
   function normalize(text) {
-    return text.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase();
+    return text.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   }
 
   function start() {
@@ -61,7 +61,7 @@
       if (!query && !scope) {
         status.textContent = "";
       } else if (shown === 0) {
-        status.textContent = "No extensions match" + (query ? " “" + query + "”" : "") + scope + ".";
+        status.textContent = "No extensions match" + (query ? " \u201c" + query + "\u201d" : "") + scope + ".";
       } else {
         status.textContent = shown + (shown === 1 ? " extension" : " extensions") + scope + ".";
       }
@@ -77,7 +77,9 @@
             normalize([entry.name, entry.description, entry.author, entry.category, labels.get(entry.category) || ""].join(" ")),
           ])
         );
-        input.value = params.get("q") || "";
+        if (!input.value) {
+          input.value = params.get("q") || "";
+        }
         input.addEventListener("input", apply);
         form.addEventListener("submit", (event) => {
           event.preventDefault();
