@@ -2,6 +2,8 @@ import copy
 import json
 import shutil
 import struct
+import subprocess
+import sys
 import tempfile
 import unittest
 import zlib
@@ -47,6 +49,20 @@ def fixture_bytes(path):
     return (FIXTURES / path).read_bytes()
 
 
+def jpeg_frame(width, height):
+    return b"\xff\xc0" + struct.pack(">HBHHB", 11, 8, height, width, 1) + b"\x01\x11\x00"
+
+
+def six_distinct(c, root):
+    names = [f"assets/tab-tidy/shot{n}.png" for n in range(6)]
+    for name in names:
+        (root / name).write_bytes(png(16, 16))
+    c["extensions"][2]["screenshots"] = names
+
+
+EMPTY_IHDR = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", b"")
+
+
 INVALID = {
     "category outside the list": field("category", "games"),
     "category of the wrong type": field("category", ["reading"]),
@@ -65,7 +81,32 @@ INVALID = {
     "screenshot through a symlink": symlink,
     "GIF screenshot": field("screenshots", ["assets/tab-tidy/a.gif"]),
     "missing screenshot": field("screenshots", ["assets/tab-tidy/nope.png"]),
-    "six screenshots": field("screenshots", ["assets/tab-tidy/icon.png"] * 6),
+    "six screenshots": six_distinct,
+    "the same screenshot twice": field("screenshots", ["assets/quiet-reader/light.png"] * 2),
+    "PNG with an empty IHDR": screenshot("empty.png", EMPTY_IHDR + chunk(b"IEND", b"")),
+    "PNG of only an empty IHDR": screenshot("bare.png", EMPTY_IHDR),
+    "PNG with a 14-byte IHDR": screenshot("long.png", b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBBB", 16, 16, 8, 0, 0, 0, 0, 0)) + chunk(b"IEND", b"")),
+    "JPEG with two frame headers": screenshot("two.jpg", b"\xff\xd8" + jpeg_frame(60000, 60000) + jpeg_frame(10, 10) + b"\xff\xd9"),
+    "Hangul filler as the name": field("name", "\u3164"),
+    "combining grapheme joiner in the name": field("name", "A\u034fB"),
+    "halfwidth Hangul filler in the author": field("author", "Fixture\uffa0Labs"),
+    "Hangul choseong filler in the name": field("name", "\u115fTab"),
+    "Hangul jungseong filler in the name": field("name", "Tab\u1160"),
+    "braille blank in the description": field("description", "Groups tabs\u2800."),
+    "variation selector in the name": field("name", "Tab\ufe0fTidy"),
+    "supplementary variation selector in the author": field("author", "Fixture\U000e0100"),
+    "unassigned character in the name": field("name", "Tab\u0378"),
+    "name of only wide spaces": field("name", "\u3000\u2003"),
+    "author of only spaces": field("author", "   "),
+    "host pattern with a user": field("hosts", ["https://a.com@b.com/*"]),
+    "host pattern with a port": field("hosts", ["*://example.com:8080/*"]),
+    "host pattern with another scheme": field("hosts", ["ftp://example.com/*"]),
+    "host pattern with a wildcard inside the host": field("hosts", ["*://ex*ample.com/*"]),
+    "host pattern with a wildcard without a dot": field("hosts", ["*://*example.com/*"]),
+    "host pattern without a path": field("hosts", ["*://example.com"]),
+    "host pattern without a scheme": field("hosts", ["example.com"]),
+    "host pattern with an uppercase host": field("hosts", ["*://Example.com/*"]),
+    "optional host pattern with a user": field("optional_permissions", ["https://a.com@b.com/*"]),
     "screenshot 2561 px wide": screenshot("wide.png", png(2561, 1)),
     "screenshot 2561 px high": screenshot("high.png", png(1, 2561)),
     "PNG claiming a huge height": screenshot("tall.png", png(100, 1_000_000_000, pixels=False)),
@@ -119,6 +160,41 @@ class StoreTest(unittest.TestCase):
                 with self.assertRaises(store.Invalid):
                     store.check(catalog, root)
 
+    def test_refusals_name_their_reason(self):
+        reasons = {
+            "six screenshots": "at most 5 distinct",
+            "the same screenshot twice": "at most 5 distinct",
+            "PNG with an empty IHDR": "IHDR",
+            "PNG of only an empty IHDR": "IHDR",
+            "PNG with a 14-byte IHDR": "IHDR",
+            "JPEG with two frame headers": "frame header",
+        }
+        for name, reason in reasons.items():
+            with self.subTest(name):
+                root = self.tmp / ("reason-" + name.replace(" ", "-"))
+                shutil.copytree(FIXTURES, root)
+                catalog = copy.deepcopy(self.catalog)
+                INVALID[name](catalog, root)
+                with self.assertRaisesRegex(store.Invalid, reason):
+                    store.check(catalog, root)
+
+    def test_cli_reports_a_broken_image_as_an_error(self):
+        self.catalog["extensions"][2]["screenshots"] = ["assets/tab-tidy/empty.png"]
+        (self.root / "assets/tab-tidy/empty.png").write_bytes(EMPTY_IHDR)
+        catalog = self.tmp / "catalog.json"
+        catalog.write_text(json.dumps(self.catalog))
+        script = Path(store.__file__)
+        result = subprocess.run([sys.executable, "-I", str(script), "check", str(catalog), "--root", str(self.root)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertTrue(result.stderr.startswith("::error::tab-tidy: "), result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_host_patterns_read_as_sites(self):
+        self.assertEqual(store.plain_host("*://*.example.org/*"), "example.org and its subdomains")
+        self.assertEqual(store.plain_host("https://example.org/path/*"), "example.org")
+        self.assertEqual(store.plain_host("*://*/*"), "every site")
+        self.assertEqual(store.plain_host("<all_urls>"), "every site")
+
     def test_catalog_must_be_an_object(self):
         with self.assertRaises(store.Invalid):
             store.check([], self.root)
@@ -142,6 +218,8 @@ class StoreTest(unittest.TestCase):
         self.assertNotIn("<Tools>", page)
         self.assertNotIn("frame-ancestors", page)
         self.assertIn(">example.org</a>", page)
+        self.assertIn("<li>example.org and its subdomains</li>", page)
+        self.assertIn("<li>every site</li>", site[Path("extension/tracker-lens/index.html")].decode())
 
 
 if __name__ == "__main__":

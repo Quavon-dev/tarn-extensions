@@ -38,7 +38,10 @@ PERMISSIONS = {
 
 ID = re.compile(r"[a-z0-9-]{1,64}")
 HOST = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}")
-INVISIBLE = {"Cc", "Cf", "Cs", "Co", "Zl", "Zp"}
+PATTERN = re.compile(r"(?:\*|https?)://(\*|(\*\.)?(" + HOST.pattern + r"))/[!-~]*")
+PERMISSION = re.compile(r"[A-Za-z][A-Za-z0-9]{0,63}")
+INVISIBLE = {"Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp"}
+FILLERS = {0x034F, 0x115F, 0x1160, 0x2800, 0x3164, 0xFFA0, *range(0x180B, 0x1810), *range(0xFE00, 0xFE10), *range(0xE0100, 0xE01F0)}
 LIMITS = {"name": 64, "description": 300, "author": 80, "version": 64, "homepage": 300}
 ITEM_LIMIT = 256
 FIELDS = {
@@ -72,6 +75,8 @@ def png_size(data):
         if (i == 8) != (chunk == b"IHDR"):
             raise Invalid("PNG must start with one IHDR chunk")
         if chunk == b"IHDR":
+            if length != 13:
+                raise Invalid("PNG IHDR must be 13 bytes")
             size = struct.unpack(">II", data[i + 8 : i + 16])
         i = end
     if i != len(data):
@@ -100,7 +105,9 @@ def jpeg_size(data):
         length = struct.unpack(">H", data[i + 2 : i + 4])[0]
         if length < 2 or i + 2 + length > len(data):
             raise Invalid("damaged JPEG segment")
-        if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC) and length >= 7:
+        if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+            if size is not None or length < 7:
+                raise Invalid("JPEG must have exactly one frame header")
             height, width = struct.unpack(">HH", data[i + 5 : i + 9])
             size = (width, height)
         i += 2 + length
@@ -123,14 +130,21 @@ def image(root, entry_id, rel, pattern, max_bytes):
     if path.stat().st_size > max_bytes:
         raise Invalid(f"{rel} must be at most {max_bytes // 1024} KiB")
     data = path.read_bytes()
-    width, height = (png_size if rel.endswith(".png") else jpeg_size)(data)
+    try:
+        width, height = (png_size if rel.endswith(".png") else jpeg_size)(data)
+    except (struct.error, IndexError, ValueError) as err:
+        raise Invalid(f"{rel} is damaged") from err
     if not width or not height:
         raise Invalid(f"{rel} has no size")
     return {"path": rel, "bytes": len(data), "width": width, "height": height}
 
 
+def hidden(c):
+    return ord(c) in FILLERS or unicodedata.category(c) in INVISIBLE
+
+
 def clean(value, key, limit):
-    if not value.strip() or len(value) > limit or any(unicodedata.category(c) in INVISIBLE for c in value):
+    if not value.strip() or len(value) > limit or any(hidden(c) for c in value):
         raise Invalid(f"{key} must be one line of at most {limit} characters without control or invisible characters")
     return value
 
@@ -162,6 +176,12 @@ def store_fields(entry, root):
     for key in LISTS:
         for value in entry.get(key, []):
             clean(value, key, ITEM_LIMIT)
+    for value in entry.get("hosts", []):
+        plain_host(value)
+    for key in ("permissions", "optional_permissions"):
+        for value in entry.get(key, []):
+            if not PERMISSION.fullmatch(value) and (key == "permissions" or not is_pattern(value)):
+                raise Invalid(f"{key} must list permission names" + (" or host match patterns" if key != "permissions" else ""))
     host = homepage_host(entry["homepage"])
     if entry["category"] not in CATEGORIES:
         raise Invalid(f"category must be one of {', '.join(CATEGORIES)}")
@@ -211,11 +231,21 @@ def e(value):
     return html.escape(str(value), quote=True)
 
 
+def is_pattern(value):
+    return value == "<all_urls>" or PATTERN.fullmatch(value) is not None
+
+
 def plain_host(pattern):
-    if pattern in ("<all_urls>", "*://*/*", "http://*/*", "https://*/*"):
+    match = PATTERN.fullmatch(pattern)
+    if pattern == "<all_urls>" or (match and match.group(1) == "*"):
         return "every site"
-    host = urlsplit(pattern).netloc or pattern
-    return f"{host[2:]} and its subdomains" if host.startswith("*.") else host
+    if not match:
+        raise Invalid(f"{pattern!r} must be <all_urls> or a match pattern <scheme>://<host>/<path> with scheme *, http or https and host *, *.<domain> or <domain>")
+    return f"{match.group(3)} and its subdomains" if match.group(2) else match.group(3)
+
+
+def describe(permission):
+    return f"Read and change data on {plain_host(permission)}" if is_pattern(permission) else PERMISSIONS.get(permission, permission)
 
 
 def page(root, title, body, description=""):
@@ -307,8 +337,8 @@ def listing(root, entries, category=None):
 def detail(entry, checked):
     icon, shots = checked["icon"], checked["shots"]
     i, name = entry["id"], entry["name"]
-    perms = [PERMISSIONS.get(p, p) for p in entry.get("permissions", [])]
-    optional = [PERMISSIONS.get(p, p) for p in entry.get("optional_permissions", [])]
+    perms = [describe(p) for p in entry.get("permissions", [])]
+    optional = [describe(p) for p in entry.get("optional_permissions", [])]
     hosts = [plain_host(h) for h in entry.get("hosts", [])]
     rows = "".join(f"<li>{e(p)}</li>" for p in perms) or "<li>No special permissions</li>"
     rows += "".join(f"<li>{e(p)} <span class=\"tag\">if you allow it</span></li>" for p in optional)

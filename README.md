@@ -67,6 +67,9 @@ only `main` may use; the maintainer keeps an offline copy.
 
    `name` (at most 64 characters), `description` (300), `author` (80), `version` (64) and `homepage`
    (300) are one line without control or invisible characters; Tarn rejects an index above 256 KiB.
+   Each `hosts` entry, and each host in `optional_permissions`, is `<all_urls>` or a match pattern
+   `<scheme>://<host>/<path>` with scheme `*`, `http` or `https` and host `*`, `*.<domain>` or
+   `<domain>` (lowercase, no user or port).
 
    | `category` | Shown as |
    |---|---|
