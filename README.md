@@ -67,9 +67,10 @@ only `main` may use; the maintainer keeps an offline copy.
 
    `name` (at most 64 characters), `description` (300), `author` (80), `version` (64) and `homepage`
    (300) are one line without control or invisible characters; Tarn rejects an index above 256 KiB.
-   Each `hosts` entry, and each host in `optional_permissions`, is `<all_urls>` or a match pattern
-   `<scheme>://<host>/<path>` with scheme `*`, `http` or `https` and host `*`, `*.<domain>` or
-   `<domain>` (lowercase, no user or port).
+   `hosts` lists every match pattern the package asks for, required or optional, word for word as Tarn
+   reads it: `<all_urls>`, `<scheme>://<host><path>` (scheme `*`, `http`, `https`, `ws`, `wss` or `ftp`;
+   host `*`, `*.<domain>`, `<domain>` or an IP literal, with an optional port; no user or password)
+   `file:///<path>`, `data:…` or `urn:…`. The store shows them as the sites the extension may ask for.
 
    | `category` | Shown as |
    |---|---|

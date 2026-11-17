@@ -63,6 +63,34 @@ def six_distinct(c, root):
 EMPTY_IHDR = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", b"")
 
 
+VALID_PATTERNS = {
+    "<all_urls>": "every site",
+    "*://*/*": "every site",
+    "https://*/*": "every site",
+    "*://*.example.org/*": "example.org and its subdomains",
+    "*://*.example.org:8443/*": "example.org and its subdomains (port 8443)",
+    "https://example.org/path/*": "example.org",
+    "*://Example.com/*": "Example.com",
+    "http://localhost/*": "localhost",
+    "*://localhost:3000/*": "localhost (port 3000)",
+    "http://localhost:*/*": "localhost (any port)",
+    "http://127.0.0.1/*": "127.0.0.1",
+    "http://[::1]:8080/*": "[::1] (port 8080)",
+    "file:///*": "local files",
+    "file:///Users/*": "local files",
+    "wss://example.com/*": "wss://example.com/*",
+    "ws://localhost:8080/socket": "ws://localhost:8080/socket",
+    "ftp://example.com/*": "ftp://example.com/*",
+    "urn:*": "urn:*",
+}
+
+KNOWN_PERMISSIONS = [
+    "activeTab", "alarms", "clipboardRead", "clipboardWrite", "contextMenus", "cookies", "declarativeNetRequest",
+    "declarativeNetRequestFeedback", "declarativeNetRequestWithHostAccess", "menus", "nativeMessaging",
+    "notifications", "scripting", "storage", "tabs", "unlimitedStorage", "webNavigation", "webRequest",
+]
+
+
 INVALID = {
     "category outside the list": field("category", "games"),
     "category of the wrong type": field("category", ["reading"]),
@@ -99,14 +127,21 @@ INVALID = {
     "name of only wide spaces": field("name", "\u3000\u2003"),
     "author of only spaces": field("author", "   "),
     "host pattern with a user": field("hosts", ["https://a.com@b.com/*"]),
-    "host pattern with a port": field("hosts", ["*://example.com:8080/*"]),
-    "host pattern with another scheme": field("hosts", ["ftp://example.com/*"]),
     "host pattern with a wildcard inside the host": field("hosts", ["*://ex*ample.com/*"]),
     "host pattern with a wildcard without a dot": field("hosts", ["*://*example.com/*"]),
     "host pattern without a path": field("hosts", ["*://example.com"]),
     "host pattern without a scheme": field("hosts", ["example.com"]),
-    "host pattern with an uppercase host": field("hosts", ["*://Example.com/*"]),
     "optional host pattern with a user": field("optional_permissions", ["https://a.com@b.com/*"]),
+    "host pattern with a user and password": field("hosts", ["https://user:pass@example.com/*"]),
+    "host pattern with a backslash": field("hosts", ["https://evil.com\\a/*"]),
+    "host pattern with a space": field("hosts", ["https://a b.com/*"]),
+    "host pattern with the javascript scheme": field("hosts", ["javascript://x/*"]),
+    "host pattern with the chrome scheme": field("hosts", ["chrome://settings/*"]),
+    "host pattern with two wildcards": field("hosts", ["http://*.*.com/*"]),
+    "host pattern with a broken IPv6 literal": field("hosts", ["https://[::1/*"]),
+    "host pattern with a port above 65535": field("hosts", ["http://example.com:99999/*"]),
+    "host pattern with an empty port": field("hosts", ["http://example.com:/*"]),
+    "host pattern with an empty host": field("hosts", ["*://:80/*"]),
     "screenshot 2561 px wide": screenshot("wide.png", png(2561, 1)),
     "screenshot 2561 px high": screenshot("high.png", png(1, 2561)),
     "PNG claiming a huge height": screenshot("tall.png", png(100, 1_000_000_000, pixels=False)),
@@ -189,11 +224,32 @@ class StoreTest(unittest.TestCase):
         self.assertTrue(result.stderr.startswith("::error::tab-tidy: "), result.stderr)
         self.assertNotIn("Traceback", result.stderr)
 
-    def test_host_patterns_read_as_sites(self):
-        self.assertEqual(store.plain_host("*://*.example.org/*"), "example.org and its subdomains")
-        self.assertEqual(store.plain_host("https://example.org/path/*"), "example.org")
-        self.assertEqual(store.plain_host("*://*/*"), "every site")
-        self.assertEqual(store.plain_host("<all_urls>"), "every site")
+    def test_every_match_pattern_tarn_accepts_is_accepted_and_read_as_a_site(self):
+        self.catalog["extensions"][2]["hosts"] = list(VALID_PATTERNS)
+        store.check(self.catalog, self.root)
+        for pattern, shown in VALID_PATTERNS.items():
+            with self.subTest(pattern):
+                self.assertEqual(store.plain_host(pattern), shown)
+
+    def test_permissions_read_as_plain_language(self):
+        for name in KNOWN_PERMISSIONS:
+            with self.subTest(name):
+                self.assertIn(name, store.PERMISSIONS)
+                self.assertNotEqual(store.describe(name), f"Uses the {name} API")
+        self.assertEqual(store.describe("fooBar"), "Uses the fooBar API")
+
+    def test_sites_are_listed_as_ones_it_may_ask_for(self):
+        entry = self.catalog["extensions"][2]
+        entry["permissions"] = ["storage", "fooBar"]
+        entry["optional_permissions"] = ["tabs", "https://example.net/*"]
+        page = store.detail(entry, store.check(self.catalog, self.root)["tab-tidy"])
+        self.assertIn("<h2>Sites it may ask for</h2>", page)
+        self.assertNotIn("Sites it works on", page)
+        self.assertIn("<li>example.org and its subdomains</li>", page)
+        self.assertIn("<li>example.net</li>", page)
+        self.assertIn("<li>Uses the fooBar API</li>", page)
+        self.assertNotIn("<li>fooBar</li>", page)
+        self.assertNotIn("https://example.net/*", page)
 
     def test_catalog_must_be_an_object(self):
         with self.assertRaises(store.Invalid):

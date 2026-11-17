@@ -31,15 +31,32 @@ CATEGORIES = {
 }
 
 PERMISSIONS = {
-    "storage": "Keep its own data on this device",
-    "activeTab": "Read and change the page you are on, after you click it",
+    "activeTab": "Clicking its toolbar button gives it the page you are on, in that tab",
+    "alarms": "Run tasks on a schedule",
+    "clipboardRead": "Read what you copy",
+    "clipboardWrite": "Put text on your clipboard",
+    "contextMenus": "Add items to the right-click menu",
+    "cookies": "Read and change cookies on the sites you allow",
     "declarativeNetRequest": "Block or change network requests by rules",
+    "declarativeNetRequestFeedback": "See which of its blocking rules matched",
+    "declarativeNetRequestWithHostAccess": "Block or change network requests on the sites you allow",
+    "menus": "Add items to the right-click menu",
+    "nativeMessaging": "Talk to an app installed on your device",
+    "notifications": "Show notifications",
+    "scripting": "Run scripts on the sites you allow",
+    "storage": "Keep its own data on this device",
+    "tabs": "See the titles and addresses of your tabs",
+    "unlimitedStorage": "Keep more data on this device than usual",
+    "webNavigation": "See when pages load in your tabs",
+    "webRequest": "See network requests on the sites you allow",
 }
 
 ID = re.compile(r"[a-z0-9-]{1,64}")
 HOST = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}")
-PATTERN = re.compile(r"(?:\*|https?)://(\*|(\*\.)?(" + HOST.pattern + r"))/[!-~]*")
-PERMISSION = re.compile(r"[A-Za-z][A-Za-z0-9]{0,63}")
+MATCH = re.compile(r"(\*|https?|wss?|ftp)://(\*|(\*\.)?([^\s/*@:\\\[\]?#]+|\[[0-9A-Fa-f:.]+\]))(?::(\*|[0-9]{1,5}))?/\S*")
+LOCAL_FILES = re.compile(r"file://(?:localhost)?/\S*")
+OPAQUE = re.compile(r"(?:data|urn):\S+")
+PERMISSION = re.compile(r"[A-Za-z][A-Za-z0-9._]{0,63}")
 INVISIBLE = {"Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp"}
 FILLERS = {0x034F, 0x115F, 0x1160, 0x2800, 0x3164, 0xFFA0, *range(0x180B, 0x1810), *range(0xFE00, 0xFE10), *range(0xE0100, 0xE01F0)}
 LIMITS = {"name": 64, "description": 300, "author": 80, "version": 64, "homepage": 300}
@@ -232,20 +249,32 @@ def e(value):
 
 
 def is_pattern(value):
-    return value == "<all_urls>" or PATTERN.fullmatch(value) is not None
+    try:
+        plain_host(value)
+    except Invalid:
+        return False
+    return True
 
 
 def plain_host(pattern):
-    match = PATTERN.fullmatch(pattern)
-    if pattern == "<all_urls>" or (match and match.group(1) == "*"):
+    if pattern == "<all_urls>":
         return "every site"
-    if not match:
-        raise Invalid(f"{pattern!r} must be <all_urls> or a match pattern <scheme>://<host>/<path> with scheme *, http or https and host *, *.<domain> or <domain>")
-    return f"{match.group(3)} and its subdomains" if match.group(2) else match.group(3)
+    if LOCAL_FILES.fullmatch(pattern):
+        return "local files"
+    match = MATCH.fullmatch(pattern)
+    if not match and OPAQUE.fullmatch(pattern):
+        return pattern
+    if not match or (match.group(5) not in (None, "*") and int(match.group(5)) > 65535):
+        raise Invalid(f"{pattern!r} is not a match pattern: <all_urls>, <scheme>://<host><path> with host *, *.<domain> or <domain> and an optional port, or file:///<path>")
+    scheme, host, subdomains, name, port = match.groups()
+    if scheme not in ("*", "http", "https"):
+        return pattern
+    site = "every site" if host == "*" else f"{name} and its subdomains" if subdomains else name
+    return site + ("" if port is None else " (any port)" if port == "*" else f" (port {port})")
 
 
 def describe(permission):
-    return f"Read and change data on {plain_host(permission)}" if is_pattern(permission) else PERMISSIONS.get(permission, permission)
+    return PERMISSIONS.get(permission, f"Uses the {permission} API")
 
 
 def page(root, title, body, description=""):
@@ -338,8 +367,9 @@ def detail(entry, checked):
     icon, shots = checked["icon"], checked["shots"]
     i, name = entry["id"], entry["name"]
     perms = [describe(p) for p in entry.get("permissions", [])]
-    optional = [describe(p) for p in entry.get("optional_permissions", [])]
-    hosts = [plain_host(h) for h in entry.get("hosts", [])]
+    optional = [describe(p) for p in entry.get("optional_permissions", []) if not is_pattern(p)]
+    patterns = entry.get("hosts", []) + [p for p in entry.get("optional_permissions", []) if is_pattern(p)]
+    hosts = list(dict.fromkeys(plain_host(h) for h in patterns))
     rows = "".join(f"<li>{e(p)}</li>" for p in perms) or "<li>No special permissions</li>"
     rows += "".join(f"<li>{e(p)} <span class=\"tag\">if you allow it</span></li>" for p in optional)
     sites = "".join(f"<li>{e(h)}</li>" for h in hosts) or "<li>No sites</li>"
@@ -365,7 +395,7 @@ def detail(entry, checked):
 {screenshots if shots else ''}
 <div class="facts">
 <section><h2>What it can do</h2><ul>{rows}</ul></section>
-<section><h2>Sites it works on</h2><ul>{sites}</ul></section>
+<section><h2>Sites it may ask for</h2><ul>{sites}</ul><p class="note">Tarn asks you per site.</p></section>
 <section><h2>Details</h2><dl>
 <dt>Version</dt><dd>{e(entry['version'])}</dd>
 {f'<dt>Size</dt><dd>{size}</dd>' if size else ''}
