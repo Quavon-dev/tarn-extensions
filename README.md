@@ -94,9 +94,9 @@ only `main` may use; the maintainer keeps an offline copy.
 
 ## Store website
 
-[extension.tarnbrowser.com](https://extension.tarnbrowser.com) lists the catalog with categories,
+[extensions.tarnbrowser.com](https://extensions.tarnbrowser.com) lists the catalog with categories,
 search and an **Install in Tarn** button per extension, which links to
-`https://extension.tarnbrowser.com/install/<id>`. Tarn recognises that link when you click it and
+`https://extensions.tarnbrowser.com/install/<id>`. Tarn recognises that link when you click it and
 opens its own consent sheet for the extension from its verified catalog copy; the website has no
 other channel into the browser.
 

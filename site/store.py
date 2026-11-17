@@ -10,8 +10,8 @@ import zlib
 from pathlib import Path
 from urllib.parse import urlsplit
 
-SITE = "https://extension.tarnbrowser.com"
-DOMAIN = "extension.tarnbrowser.com"
+SITE = "https://extensions.tarnbrowser.com"
+DOMAIN = "extensions.tarnbrowser.com"
 KIND = "tarn-extension-catalog"
 STATIC = Path(__file__).resolve().parent / "static"
 LANDING = "https://tarnbrowser.com/"
